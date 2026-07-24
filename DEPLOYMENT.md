@@ -63,6 +63,18 @@ Set these backend variables:
 - `STRIPE_PRICE_ID`
 - `STRIPE_WEBHOOK_SECRET`
 
+Optional manual premium access:
+
+- `MANUAL_PREMIUM_EMAILS`
+
+Use this if you want to manually grant Premium to specific Google-login accounts without Stripe. Add emails separated by commas, for example:
+
+```text
+creator@example.com,friend@example.com
+```
+
+Remove an email from this variable to remove that manual Premium access on the user's next login or account refresh.
+
 Create a Stripe webhook endpoint:
 
 ```text

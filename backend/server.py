@@ -65,6 +65,7 @@ SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "1") == "1"
 SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "0") == "1"
 UPLOADER_EMAILS = {item.strip().lower() for item in os.environ.get("UPLOADER_EMAILS", "").split(",") if item.strip()}
 ADMIN_EMAILS = {item.strip().lower() for item in os.environ.get("ADMIN_EMAILS", "").split(",") if item.strip()}
+MANUAL_PREMIUM_EMAILS = {item.strip().lower() for item in os.environ.get("MANUAL_PREMIUM_EMAILS", "").split(",") if item.strip()}
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 S3_BUCKET = os.environ.get("S3_BUCKET", "")
 S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", "") or None
@@ -186,6 +187,10 @@ def role_for_email(email: str, existing_role: str = "Viewer") -> str:
     return existing_role if existing_role in {"Admin", "Uploader", "Viewer"} else "Viewer"
 
 
+def email_has_manual_premium(email: str = "") -> bool:
+    return (email or "").strip().lower() in MANUAL_PREMIUM_EMAILS
+
+
 def create_session_token(user_id: str) -> str:
     if not JWT_SECRET:
         raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
@@ -198,16 +203,18 @@ def create_session_token(user_id: str) -> str:
 
 
 def public_user(user: dict) -> dict:
-    premium_cancelled = bool(user.get("premium_cancelled") or user.get("premium_cancel_at_period_end"))
+    manual_premium = email_has_manual_premium(user.get("email", ""))
+    premium_cancelled = False if manual_premium else bool(user.get("premium_cancelled") or user.get("premium_cancel_at_period_end"))
     return {
         "id": user["id"],
         "email": user.get("email", ""),
         "name": user.get("name", ""),
         "picture": user.get("picture", ""),
         "role": user.get("role", "Viewer"),
-        "premium_status": user.get("premium_status", "inactive"),
+        "premium_status": "active" if manual_premium else user.get("premium_status", "inactive"),
         "premium_cancel_at_period_end": premium_cancelled,
         "premium_cancelled": premium_cancelled,
+        "manual_premium": manual_premium,
     }
 
 
@@ -261,7 +268,18 @@ async def clear_premium_access(user: dict) -> dict:
 
 
 async def sync_user_from_stripe(user: dict) -> dict:
-    if not STRIPE_SECRET_KEY or not user.get("id"):
+    if not user.get("id"):
+        return user
+    if email_has_manual_premium(user.get("email", "")):
+        updates = {
+            "premium_status": "active",
+            "premium_cancel_at_period_end": False,
+            "premium_cancelled": False,
+            "updated_at": now_iso(),
+        }
+        await db.users.update_one({"id": user["id"]}, {"$set": updates})
+        return {**user, **updates, "manual_premium": True}
+    if not STRIPE_SECRET_KEY:
         return user
     try:
         customer_id = user.get("stripe_customer_id", "")
@@ -390,6 +408,8 @@ def has_premium_access(user: Optional[dict]) -> bool:
     if not user:
         return False
     if user_is_staff(user):
+        return True
+    if email_has_manual_premium(user.get("email", "")):
         return True
     if user.get("premium_cancel_at_period_end") or user.get("premium_cancelled"):
         return False
