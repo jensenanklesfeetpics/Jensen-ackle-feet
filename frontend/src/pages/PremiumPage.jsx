@@ -155,7 +155,7 @@ export default function PremiumPage() {
                 Premium packs, project files, presets, curated resources, higher quality AI text images, and more AI text generator credits included with your monthly membership.
               </p>
               <div className="mt-8 flex items-end gap-2">
-                <span className="font-display text-5xl font-black">$5.99</span>
+                <span className="font-display text-5xl font-black">$9.99</span>
                 <span className="text-zinc-400 pb-1">USD / month</span>
               </div>
             </div>
@@ -240,7 +240,7 @@ export default function PremiumPage() {
                     <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-purple-200">
                       <Crown className="w-4 h-4" /> Premium
                     </div>
-                    <div className="font-display text-xl font-black text-white mt-1">$5.99 / month</div>
+                    <div className="font-display text-xl font-black text-white mt-1">$9.99 / month</div>
                   </th>
                 </tr>
               </thead>
