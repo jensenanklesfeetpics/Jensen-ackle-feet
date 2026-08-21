@@ -31,7 +31,7 @@ export default function CategoryPicker({
   onChanged,
   testIdPrefix,
 }) {
-  const { isUploader } = useUploadAccess();
+  const { canDelete } = useUploadAccess();
   const [editing, setEditing] = useState(null);
 
   const visible = items.filter((label) => !overrides[label]?.deleted);
@@ -112,7 +112,7 @@ export default function CategoryPicker({
                 </p>
               </button>
 
-              {isUploader && (
+              {canDelete && (
                 <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={(e) => {

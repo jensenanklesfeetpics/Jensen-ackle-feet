@@ -66,6 +66,7 @@ SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "0") == "1"
 UPLOADER_EMAILS = {item.strip().lower() for item in os.environ.get("UPLOADER_EMAILS", "").split(",") if item.strip()}
 ADMIN_EMAILS = {item.strip().lower() for item in os.environ.get("ADMIN_EMAILS", "").split(",") if item.strip()}
 MANUAL_PREMIUM_EMAILS = {item.strip().lower() for item in os.environ.get("MANUAL_PREMIUM_EMAILS", "").split(",") if item.strip()}
+TEMP_MOD_EMAILS = {item.strip().lower() for item in os.environ.get("TEMP_MOD_EMAILS", "").split(",") if item.strip()}
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 S3_BUCKET = os.environ.get("S3_BUCKET", "")
 S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", "") or None
@@ -184,7 +185,9 @@ def role_for_email(email: str, existing_role: str = "Viewer") -> str:
         return "Admin"
     if normalized in UPLOADER_EMAILS:
         return "Uploader"
-    return existing_role if existing_role in {"Admin", "Uploader", "Viewer"} else "Viewer"
+    if normalized in TEMP_MOD_EMAILS:
+        return "Temp Mod"
+    return existing_role if existing_role in {"Admin", "Uploader", "Temp Mod", "Viewer"} else "Viewer"
 
 
 def email_has_manual_premium(email: str = "") -> bool:
@@ -205,6 +208,8 @@ def create_session_token(user_id: str) -> str:
 def public_user(user: dict) -> dict:
     manual_premium = email_has_manual_premium(user.get("email", ""))
     premium_cancelled = False if manual_premium else bool(user.get("premium_cancelled") or user.get("premium_cancel_at_period_end"))
+    can_delete = user_is_staff(user)
+    can_upload = can_delete or user_is_temp_mod(user)
     return {
         "id": user["id"],
         "email": user.get("email", ""),
@@ -215,6 +220,8 @@ def public_user(user: dict) -> dict:
         "premium_cancel_at_period_end": premium_cancelled,
         "premium_cancelled": premium_cancelled,
         "manual_premium": manual_premium,
+        "can_upload": can_upload,
+        "can_delete": can_delete,
     }
 
 
@@ -242,6 +249,14 @@ def subscription_grants_premium(subscription: Optional[dict]) -> bool:
 
 def user_is_staff(user: Optional[dict]) -> bool:
     return bool(user and user.get("role") in {"Admin", "Uploader"})
+
+
+def user_is_temp_mod(user: Optional[dict]) -> bool:
+    return bool(user and user.get("role") == "Temp Mod")
+
+
+def user_can_upload(user: Optional[dict]) -> bool:
+    return user_is_staff(user) or user_is_temp_mod(user)
 
 
 def user_has_premium_flags(user: Optional[dict]) -> bool:
@@ -424,6 +439,10 @@ def can_manage_assets(user: Optional[dict]) -> bool:
     return user_is_staff(user)
 
 
+def can_upload_assets(user: Optional[dict]) -> bool:
+    return user_can_upload(user)
+
+
 def ai_generation_limit(user: dict) -> Optional[int]:
     if user_is_staff(user):
         return None
@@ -547,12 +566,19 @@ def base64_size_bytes(encoded: str) -> int:
 
 async def require_uploader(request: Request) -> dict:
     user = await request_user(request)
-    if user and user.get("role") in {"Admin", "Uploader"}:
+    if user and can_upload_assets(user):
         return user
     # The password compatibility path exists only for the local mock preview.
     if USE_MOCK_DB and request.headers.get("x-upload-password") in LOCAL_PREVIEW_UPLOAD_PASSWORDS:
         return {"id": "local:uploader", "role": "Uploader"}
-    raise HTTPException(status_code=403, detail="Uploader or Admin account required")
+    raise HTTPException(status_code=403, detail="Upload access required")
+
+
+async def require_delete_access(request: Request) -> dict:
+    user = await request_user(request, required=True)
+    if can_manage_assets(user):
+        return user
+    raise HTTPException(status_code=403, detail="Admin or full uploader account required")
 
 
 async def require_admin(request: Request) -> dict:
@@ -968,8 +994,8 @@ async def auth_me(request: Request):
 @api_router.patch("/admin/users/{user_id}/role")
 async def update_user_role(user_id: str, payload: RoleUpdate, request: Request):
     await require_admin(request)
-    if payload.role not in {"Viewer", "Uploader", "Admin"}:
-        raise HTTPException(status_code=400, detail="Role must be Viewer, Uploader, or Admin")
+    if payload.role not in {"Viewer", "Temp Mod", "Uploader", "Admin"}:
+        raise HTTPException(status_code=400, detail="Role must be Viewer, Temp Mod, Uploader, or Admin")
     result = await db.users.update_one(
         {"id": user_id},
         {"$set": {"role": payload.role, "updated_at": now_iso()}},
@@ -1333,8 +1359,10 @@ async def list_assets(
 
 @api_router.post("/assets", response_model=Asset)
 async def create_asset(payload: AssetCreate, request: Request):
-    await require_uploader(request)
+    user = await require_uploader(request)
     data = normalize_asset_video_payload(payload.model_dump())
+    if user_is_temp_mod(user) and data.get("category") == "Premium":
+        raise HTTPException(status_code=403, detail="Temporary moderators cannot publish Premium assets")
     asset = Asset(**data)
     await db.assets.insert_one(asset.model_dump())
     return asset
@@ -1344,7 +1372,7 @@ async def create_asset(payload: AssetCreate, request: Request):
 async def update_asset(
     asset_id: str, payload: AssetUpdate, request: Request
 ):
-    await require_uploader(request)
+    user = await require_uploader(request)
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(400, "No fields to update")
@@ -1354,6 +1382,8 @@ async def update_asset(
         raise HTTPException(404, "Asset not found")
 
     next_category = updates.get("category") or existing.get("category")
+    if user_is_temp_mod(user) and (existing.get("category") == "Premium" or next_category == "Premium"):
+        raise HTTPException(status_code=403, detail="Temporary moderators cannot edit Premium assets")
     if next_category == "Videos":
         candidate = {**existing, **updates, "category": "Videos"}
         normalize_asset_video_payload(candidate)
@@ -1381,7 +1411,7 @@ async def update_asset(
 
 @api_router.delete("/assets/{asset_id}")
 async def delete_asset(asset_id: str, request: Request):
-    await require_uploader(request)
+    await require_delete_access(request)
     res = await db.assets.delete_one({"id": asset_id})
     if res.deleted_count == 0:
         raise HTTPException(404, "Asset not found")
@@ -1504,7 +1534,7 @@ async def create_pack(payload: PackCreate, request: Request):
 
 @api_router.delete("/packs/{pack_id}")
 async def delete_pack(pack_id: str, request: Request):
-    await require_uploader(request)
+    await require_delete_access(request)
     await db.packs.delete_one({"id": pack_id})
     await db.assets.update_many({"pack_id": pack_id}, {"$set": {"pack_id": ""}})
     return {"ok": True}
@@ -1532,7 +1562,7 @@ async def create_category(
 
 @api_router.delete("/categories/{cat_id}")
 async def delete_category(cat_id: str, request: Request):
-    await require_uploader(request)
+    await require_delete_access(request)
     await db.custom_categories.delete_one({"id": cat_id})
     return {"ok": True}
 
@@ -1813,7 +1843,7 @@ async def edit_ai_image(
 async def list_submissions(
     request: Request, kind: Optional[str] = None
 ):
-    await require_uploader(request)
+    await require_delete_access(request)
     q = {}
     if kind:
         q["kind"] = kind
@@ -1890,7 +1920,7 @@ async def track_visit(request: Request):
 
 @api_router.get("/moderator/stats")
 async def moderator_stats(request: Request, days: int = 7):
-    await require_uploader(request)
+    await require_delete_access(request)
     days = days if days in {7, 28, 90, 365} else 7
     dates = day_range(days)
     start_ts = time.time() - days * 86400
@@ -1978,7 +2008,7 @@ async def upsert_category_override(
     payload: CategoryOverrideUpsert,
     request: Request,
 ):
-    await require_uploader(request)
+    await require_delete_access(request)
     if kind not in ("show", "creator"):
         raise HTTPException(400, "kind must be 'show' or 'creator'")
     existing = await db.category_overrides.find_one({"kind": kind, "name": name}, {"_id": 0})
@@ -2014,7 +2044,7 @@ async def upsert_category_override(
 async def delete_category_override(
     kind: str, name: str, request: Request
 ):
-    await require_uploader(request)
+    await require_delete_access(request)
     await db.category_overrides.delete_one({"kind": kind, "name": name})
     return {"ok": True}
 

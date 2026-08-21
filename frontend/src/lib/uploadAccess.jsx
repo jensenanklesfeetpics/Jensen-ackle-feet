@@ -8,7 +8,8 @@ export function UploadAccessProvider({ children }) {
   const { user, config } = useAuth();
   const [localUnlocked, setLocalUnlocked] = useState(false);
   const role = user?.role || "Viewer";
-  const accountUploader = role === "Uploader" || role === "Admin";
+  const accountUploader = Boolean(user?.can_upload) || role === "Uploader" || role === "Admin" || role === "Temp Mod";
+  const canDelete = Boolean(user?.can_delete) || role === "Uploader" || role === "Admin";
   const localPasswordEnabled = Boolean(config?.dev_login_enabled);
   const isUploader = accountUploader || (localPasswordEnabled && localUnlocked);
 
@@ -33,7 +34,7 @@ export function UploadAccessProvider({ children }) {
   }, []);
 
   return (
-    <UploadCtx.Provider value={{ isUploader, tryUnlock, lock, localPasswordEnabled }}>
+    <UploadCtx.Provider value={{ isUploader, canUpload: isUploader, canDelete, tryUnlock, lock, localPasswordEnabled }}>
       {children}
     </UploadCtx.Provider>
   );

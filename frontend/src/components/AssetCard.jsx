@@ -92,7 +92,7 @@ async function downloadUrlWithoutLeavingPage(url, filename) {
 }
 
 export default function AssetCard({ asset, onChanged, allAssets = [] }) {
-  const { isUploader } = useUploadAccess();
+  const { isUploader, canDelete } = useUploadAccess();
   const { hasPremium } = useAuth();
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -108,14 +108,14 @@ export default function AssetCard({ asset, onChanged, allAssets = [] }) {
   const isPremium = asset.category === "Premium";
   const isUpdated = isRecentlyUpdated(asset);
   const isNew = !isUpdated && isRecentlyAdded(asset);
-  const isLockedPremium = isPremium && !isUploader && !hasPremium;
+  const isLockedPremium = isPremium && !hasPremium;
   const youtubeThumb = isVideo ? youtubeThumbnailUrl(asset.external_url) : "";
   const youtubeEmbed = isVideo ? youtubeEmbedUrl(asset.external_url) : "";
   const thumbnailSrc = asset.thumbnail_url
-    ? buildFileUrl(asset.thumbnail_url, isPremium && hasPremium ? getAuthToken() : "", isPremium && isUploader ? getPass() : "")
+    ? buildFileUrl(asset.thumbnail_url, isPremium && hasPremium ? getAuthToken() : "", "")
     : youtubeThumb;
   const fileSrc = asset.file_url
-    ? buildFileUrl(asset.file_url, isPremium ? getAuthToken() : "", isPremium && isUploader ? getPass() : "")
+    ? buildFileUrl(asset.file_url, isPremium && hasPremium ? getAuthToken() : "", "")
     : "";
   const displayGenre = asset.genre || (isAudio ? asset.bpm : "");
   const thumbnailIsVideo = isVideoPreview(thumbnailSrc);
@@ -393,7 +393,7 @@ export default function AssetCard({ asset, onChanged, allAssets = [] }) {
               {isLockedPremium ? <LockKeyhole className="w-4 h-4" /> : isVideo ? <Play className="w-4 h-4" /> : <Download className="w-4 h-4" />}
               {isLockedPremium ? "Unlock Premium" : isVideo ? "Watch" : downloading ? "Downloading..." : "Download"}
             </button>
-            {isUploader && (
+            {isUploader && !isLockedPremium && (
               <>
                 <button
                   type="button"
@@ -414,21 +414,23 @@ export default function AssetCard({ asset, onChanged, allAssets = [] }) {
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
-                <button
-                  type="button"
-                  onClick={remove}
-                  className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-3 rounded-lg btn-press text-red-400"
-                  data-testid={`delete-btn-${asset.id}`}
-                  title="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={remove}
+                    className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-3 rounded-lg btn-press text-red-400"
+                    data-testid={`delete-btn-${asset.id}`}
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </>
             )}
           </div>
         </div>
 
-        {isUploader && (
+        {isUploader && !isLockedPremium && (
           <UploadModal
             open={editOpen}
             onOpenChange={setEditOpen}
