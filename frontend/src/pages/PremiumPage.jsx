@@ -240,7 +240,7 @@ export default function PremiumPage() {
                     <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-purple-200">
                       <Crown className="w-4 h-4" /> Premium
                     </div>
-                    <div className="font-display text-xl font-black text-white mt-1">$5.99 / month</div>
+                    <div className="font-display text-xl font-black text-white mt-1">$9.99 / month</div>
                   </th>
                 </tr>
               </thead>
