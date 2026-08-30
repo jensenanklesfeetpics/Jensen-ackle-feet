@@ -56,7 +56,7 @@ Set `GOOGLE_LOGIN_URI` to the same backend callback URL.
 
 Create a live Stripe product called `Effects Academy Premium`.
 
-Create a recurring monthly price for `$5.99 USD`.
+Create a recurring monthly price for `$9.99 USD`.
 
 Set these backend variables:
 
