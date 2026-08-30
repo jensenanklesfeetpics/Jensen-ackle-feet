@@ -26,6 +26,7 @@ Use `backend/.env.example` as the production checklist. In production:
 - `CORS_ORIGINS` must include your real website URL.
 - `ADMIN_EMAILS` should include the owner Google email.
 - `UPLOADER_EMAILS` should include moderator Google emails.
+- `TEMP_MOD_EMAILS` can include temporary uploader emails.
 - `UPLOAD_PASSWORD` should not be used in production.
 
 ## Frontend environment variables
@@ -74,6 +75,20 @@ creator@example.com,friend@example.com
 ```
 
 Remove an email from this variable to remove that manual Premium access on the user's next login or account refresh.
+
+Optional temporary uploader access:
+
+- `TEMP_MOD_EMAILS`
+
+Use this if you want to let specific Google-login accounts upload/edit normal assets without making them full moderators. Add emails separated by commas, for example:
+
+```text
+helper@example.com,newuploader@example.com
+```
+
+Temporary moderators can upload, edit, duplicate, create packs, and create upload categories for non-Premium assets. They cannot delete assets, delete packs/categories, open Stats, access Premium assets, publish/edit Premium assets, or receive moderator AI credits.
+
+Remove an email from this variable to turn that temporary moderator back into a normal Viewer on their next login or account refresh.
 
 Create a Stripe webhook endpoint:
 

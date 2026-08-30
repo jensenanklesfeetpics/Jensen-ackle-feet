@@ -187,7 +187,9 @@ def role_for_email(email: str, existing_role: str = "Viewer") -> str:
         return "Uploader"
     if normalized in TEMP_MOD_EMAILS:
         return "Temp Mod"
-    return existing_role if existing_role in {"Admin", "Uploader", "Temp Mod", "Viewer"} else "Viewer"
+    if existing_role == "Temp Mod":
+        return "Viewer"
+    return existing_role if existing_role in {"Admin", "Uploader", "Viewer"} else "Viewer"
 
 
 def email_has_manual_premium(email: str = "") -> bool:

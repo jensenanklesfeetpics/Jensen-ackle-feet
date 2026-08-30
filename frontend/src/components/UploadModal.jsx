@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Upload, ImagePlus, Plus, Files, RefreshCw } from "lucide-react";
 import { api, CATEGORIES, AUDIO_CREATORS, SHOWS, FILE_BASE } from "@/lib/api";
+import { useUploadAccess } from "@/lib/uploadAccess";
 import { toast } from "sonner";
 
 const THUMBNAIL_ACCEPT = "image/*,video/mp4,video/webm,video/quicktime,video/x-m4v";
@@ -116,6 +117,7 @@ function uploadToPresignedUrl(uploadUrl, file, contentType, onProgress) {
 }
 
 export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
+  const { canDelete } = useUploadAccess();
   const [form, setForm] = useState(editing ? { ...initial, ...editing, genre: editing.genre || editing.bpm || "", bpm: "" } : initial);
   const [packs, setPacks] = useState([]);
   const [newPackOpen, setNewPackOpen] = useState(false);
@@ -311,6 +313,7 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
   const isVideo = form.category === "Videos";
   const isPF = form.category === "Project Files";
   const isTorrent = form.category === "Torrents";
+  const categoryOptions = canDelete ? CATEGORIES : CATEGORIES.filter((c) => c !== "Premium");
   const canMarkUpdated = Boolean(editing?.id) && UPDATE_MARKABLE_CATEGORIES.has(form.category);
   const thumbnailPreviewSrc = form.thumbnail_url
     ? form.thumbnail_url.startsWith("http") ? form.thumbnail_url : `${FILE_BASE}${form.thumbnail_url}`
@@ -374,7 +377,7 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="glass border-white/10 text-white">
-                  {CATEGORIES.map((c) => (
+                  {categoryOptions.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
                     </SelectItem>
