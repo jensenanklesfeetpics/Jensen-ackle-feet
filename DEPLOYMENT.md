@@ -86,7 +86,7 @@ Use this if you want to let specific Google-login accounts upload/edit normal as
 helper@example.com,newuploader@example.com
 ```
 
-Temporary moderators can upload, edit, duplicate, create packs, and create upload categories for non-Premium assets. They cannot delete assets, delete packs/categories, open Stats, access Premium assets, publish/edit Premium assets, or receive moderator AI credits.
+Temporary moderators can upload, edit, duplicate, and create upload categories for non-Premium assets. They cannot delete assets, delete categories, open Stats, access Premium assets, publish/edit Premium assets, or receive moderator AI credits.
 
 Remove an email from this variable to turn that temporary moderator back into a normal Viewer on their next login or account refresh.
 

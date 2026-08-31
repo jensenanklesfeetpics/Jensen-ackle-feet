@@ -16,7 +16,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { Upload, ImagePlus, Plus, Files, RefreshCw } from "lucide-react";
+import { Upload, ImagePlus, RefreshCw } from "lucide-react";
 import { api, CATEGORIES, AUDIO_CREATORS, SHOWS, FILE_BASE } from "@/lib/api";
 import { useUploadAccess } from "@/lib/uploadAccess";
 import { toast } from "sonner";
@@ -37,19 +37,11 @@ const initial = {
   file_url: "",
   original_filename: "",
   external_url: "",
-  pack_id: "",
   is_updated: false,
   updated_at: "",
 };
 
 const UPDATE_MARKABLE_CATEGORIES = new Set(["Overlays", "Sound FX"]);
-
-const titleFromFilename = (name = "") =>
-  name
-    .replace(/\.[^.]+$/, "")
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim() || "Untitled asset";
 
 const isVideoPreview = (url = "") => /\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(url);
 
@@ -119,22 +111,13 @@ function uploadToPresignedUrl(uploadUrl, file, contentType, onProgress) {
 export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
   const { canDelete } = useUploadAccess();
   const [form, setForm] = useState(editing ? { ...initial, ...editing, genre: editing.genre || editing.bpm || "", bpm: "" } : initial);
-  const [packs, setPacks] = useState([]);
-  const [newPackOpen, setNewPackOpen] = useState(false);
-  const [newPackName, setNewPackName] = useState("");
   const [uploadingField, setUploadingField] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [bulkProgress, setBulkProgress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [knownCreators, setKnownCreators] = useState([]);
   const [knownShows, setKnownShows] = useState([]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
-  const loadPacks = async (cat) => {
-    const { data } = await api.get("/packs", { params: { category: cat } });
-    setPacks(data);
-  };
 
   const loadDistincts = async () => {
     try {
@@ -147,9 +130,8 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
     } catch {}
   };
 
-  const setCategory = async (v) => {
+  const setCategory = (v) => {
     set("category", v);
-    await loadPacks(v);
   };
 
   const uploadViaBackend = async (file, onProgress) => {
@@ -210,44 +192,6 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
     await uploadFile(compressed, "thumbnail_url");
   };
 
-  const bulkUploadFiles = async (files) => {
-    if (editing) return;
-    if (!files.length) return;
-    setUploadingField("bulk_file_url");
-    setSubmitting(true);
-    let completed = 0;
-    try {
-      for (const file of files) {
-        setBulkProgress(`${completed + 1}/${files.length}: ${file.name}`);
-        setUploadProgress(0);
-        const data = await uploadAssetFile(file, setUploadProgress);
-        const payload = {
-          ...form,
-          title: files.length === 1 && form.title.trim() ? form.title.trim() : titleFromFilename(file.name),
-          file_url: data.url,
-          original_filename: data.original_filename || file.name,
-          external_url: "",
-          bpm: "",
-          genre: form.genre || form.bpm || "",
-        };
-        await api.post("/assets", payload);
-        completed += 1;
-      }
-      toast.success(`Bulk uploaded ${completed} asset${completed === 1 ? "" : "s"}.`);
-      onSaved?.();
-      onOpenChange(false);
-      setForm(initial);
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || `Bulk upload stopped after ${completed} file${completed === 1 ? "" : "s"}.`);
-      onSaved?.();
-    } finally {
-      setUploadingField("");
-      setUploadProgress(0);
-      setBulkProgress("");
-      setSubmitting(false);
-    }
-  };
-
   const handleThumbnailPaste = async (e) => {
     const file = Array.from(e.clipboardData?.files || []).find((f) =>
       f.type.startsWith("image/") || f.type.startsWith("video/")
@@ -257,23 +201,6 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
 
     e.preventDefault();
     await uploadThumbnail(file);
-  };
-
-  const createPack = async () => {
-    if (!newPackName.trim()) return;
-    try {
-      const { data } = await api.post("/packs", {
-        name: newPackName.trim(),
-        category: form.category,
-      });
-      setPacks((p) => [data, ...p]);
-      set("pack_id", data.id);
-      setNewPackName("");
-      setNewPackOpen(false);
-      toast.success("Pack created.");
-    } catch {
-      toast.error("Could not create pack.");
-    }
   };
 
   const submit = async (e) => {
@@ -330,7 +257,6 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
       onOpenChange={(v) => {
         onOpenChange(v);
         if (v) {
-          if (form.category) loadPacks(form.category);
           loadDistincts();
         }
       }}
@@ -346,7 +272,7 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
           <DialogDescription className="text-zinc-400">
             {isVideo
               ? "Paste a YouTube link and it will play directly inside the Videos tab."
-              : "Pick a category, drop a thumbnail, and add one file or bulk upload a batch."}
+              : "Pick a category, drop a thumbnail, and add one file or external link."}
           </DialogDescription>
         </DialogHeader>
 
@@ -359,13 +285,13 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
               <Input
                 value={form.title}
                 onChange={(e) => set("title", e.target.value)}
-                placeholder={isVideo ? "Video title" : "For bulk uploads, filenames become titles automatically"}
+                placeholder={isVideo ? "Video title" : "Asset title"}
                 className="bg-white/5 border-white/10 mt-1"
                 data-testid="upload-title-input"
               />
             </div>
 
-            <div>
+            <div className="col-span-2">
               <label className="text-xs font-mono uppercase tracking-widest text-zinc-500">
                 Category
               </label>
@@ -384,59 +310,6 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div>
-              <label className="text-xs font-mono uppercase tracking-widest text-zinc-500">
-                Pack / Group
-              </label>
-              <div className="flex gap-2 mt-1">
-                <Select value={form.pack_id || "_none"} onValueChange={(v) => set("pack_id", v === "_none" ? "" : v)}>
-                  <SelectTrigger
-                    className="bg-white/5 border-white/10"
-                    data-testid="upload-pack-select"
-                  >
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent className="glass border-white/10 text-white max-h-60">
-                    <SelectItem value="_none">None</SelectItem>
-                    {packs.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setNewPackOpen((v) => !v)}
-                  className="bg-white/5 border border-white/10 hover:bg-white/10 btn-press"
-                  data-testid="open-new-pack"
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
-              {newPackOpen && (
-                <div className="flex gap-2 mt-2 fade-in">
-                  <Input
-                    placeholder="New pack name"
-                    value={newPackName}
-                    onChange={(e) => setNewPackName(e.target.value)}
-                    className="bg-white/5 border-white/10"
-                    data-testid="new-pack-name-input"
-                  />
-                  <Button
-                    type="button"
-                    onClick={createPack}
-                    className="bg-neon text-[#05050A] hover:bg-neon/90 btn-press"
-                    data-testid="create-pack-btn"
-                  >
-                    Create
-                  </Button>
-                </div>
-              )}
             </div>
 
             {canMarkUpdated && (
@@ -681,28 +554,6 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
                 )}
               </div>
             </div>
-
-            {!editing && !isVideo && (
-              <div className="col-span-2 rounded-xl border border-neon/20 bg-neon/5 p-4">
-                <label className="text-xs font-mono uppercase tracking-widest text-zinc-400">
-                  Bulk Upload
-                </label>
-                <label className="mt-2 flex items-center justify-center gap-2 min-h-12 cursor-pointer bg-black/20 border border-dashed border-neon/30 rounded-lg hover:bg-neon/10 btn-press text-sm text-zinc-200">
-                  <Files className="w-4 h-4" />
-                  {uploadingField === "bulk_file_url" ? `Uploading ${bulkProgress || "batch"}${uploadProgress ? ` (${uploadProgress}%)` : ""}` : "Choose multiple files to publish as separate assets"}
-                  <input
-                    type="file"
-                    multiple
-                    hidden
-                    disabled={Boolean(uploadingField)}
-                    onChange={(e) => bulkUploadFiles(Array.from(e.target.files || []))}
-                  />
-                </label>
-                <p className="mt-2 text-xs text-zinc-500">
-                  Uses the category, creator, genre, pack, description, and thumbnail above. Each file gets its own asset title from the filename.
-                </p>
-              </div>
-            )}
           </div>
 
           <Button
