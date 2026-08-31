@@ -19,6 +19,9 @@ export function AuthProvider({ children }) {
     google_client_id: "",
     google_login_uri: "",
     stripe_configured: false,
+    twitch_configured: false,
+    twitch_broadcaster_login: "mrbit100",
+    twitch_discount_percent: 15,
     dev_login_enabled: false,
   });
   const [loading, setLoading] = useState(true);

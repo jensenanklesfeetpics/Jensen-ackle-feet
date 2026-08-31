@@ -50,11 +50,19 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
+STRIPE_TWITCH_COUPON_ID = os.environ.get("STRIPE_TWITCH_COUPON_ID", "")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://127.0.0.1:4173").rstrip("/")
 GOOGLE_LOGIN_URI = os.environ.get(
     "GOOGLE_LOGIN_URI",
     f"{FRONTEND_URL}/api/auth/google/callback",
 )
+TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
+TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
+TWITCH_REDIRECT_URI = os.environ.get("TWITCH_REDIRECT_URI", "")
+TWITCH_BROADCASTER_LOGIN = os.environ.get("TWITCH_BROADCASTER_LOGIN", "mrbit100")
+TWITCH_BROADCASTER_ID = os.environ.get("TWITCH_BROADCASTER_ID", "")
+TWITCH_DISCOUNT_PERCENT = int(os.environ.get("TWITCH_DISCOUNT_PERCENT", "15"))
+TWITCH_DISCOUNT_ELIGIBLE_SECONDS = int(os.environ.get("TWITCH_DISCOUNT_ELIGIBLE_SECONDS", str(7 * 24 * 60 * 60)))
 DMCA_TO_EMAIL = os.environ.get("DMCA_TO_EMAIL", "EffectsAcademy2026@hotmail.com")
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -196,6 +204,21 @@ def email_has_manual_premium(email: str = "") -> bool:
     return (email or "").strip().lower() in MANUAL_PREMIUM_EMAILS
 
 
+def twitch_redirect_uri() -> str:
+    return TWITCH_REDIRECT_URI or f"{FRONTEND_URL}/api/twitch/callback"
+
+
+def twitch_configured() -> bool:
+    return bool(TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET and twitch_redirect_uri())
+
+
+def twitch_discount_valid(user: Optional[dict]) -> bool:
+    if not user or not user.get("twitch_subscribed"):
+        return False
+    checked_at = float(user.get("twitch_subscription_checked_at_ts") or 0)
+    return checked_at > 0 and time.time() - checked_at <= TWITCH_DISCOUNT_ELIGIBLE_SECONDS
+
+
 def create_session_token(user_id: str) -> str:
     if not JWT_SECRET:
         raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
@@ -222,6 +245,11 @@ def public_user(user: dict) -> dict:
         "premium_cancel_at_period_end": premium_cancelled,
         "premium_cancelled": premium_cancelled,
         "manual_premium": manual_premium,
+        "twitch_login": user.get("twitch_login", ""),
+        "twitch_subscribed": bool(user.get("twitch_subscribed")),
+        "twitch_subscription_checked_at": user.get("twitch_subscription_checked_at", ""),
+        "twitch_discount_eligible": twitch_discount_valid(user),
+        "twitch_discount_percent": TWITCH_DISCOUNT_PERCENT,
         "can_upload": can_upload,
         "can_delete": can_delete,
     }
@@ -396,6 +424,87 @@ async def user_filter_for_stripe_event(obj: dict) -> Optional[dict]:
         if existing:
             return {"id": existing["id"]}
     return None
+
+
+def twitch_request_headers(access_token: str) -> dict:
+    return {
+        "Client-ID": TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {access_token}",
+    }
+
+
+def twitch_exchange_code(code: str) -> dict:
+    response = requests.post(
+        "https://id.twitch.tv/oauth2/token",
+        data={
+            "client_id": TWITCH_CLIENT_ID,
+            "client_secret": TWITCH_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": twitch_redirect_uri(),
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def twitch_get_app_access_token() -> str:
+    response = requests.post(
+        "https://id.twitch.tv/oauth2/token",
+        data={
+            "client_id": TWITCH_CLIENT_ID,
+            "client_secret": TWITCH_CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    return response.json().get("access_token", "")
+
+
+def twitch_resolve_broadcaster_id() -> str:
+    if TWITCH_BROADCASTER_ID:
+        return TWITCH_BROADCASTER_ID
+    app_token = twitch_get_app_access_token()
+    response = requests.get(
+        "https://api.twitch.tv/helix/users",
+        params={"login": TWITCH_BROADCASTER_LOGIN},
+        headers=twitch_request_headers(app_token),
+        timeout=12,
+    )
+    response.raise_for_status()
+    users = response.json().get("data", [])
+    return users[0]["id"] if users else ""
+
+
+def twitch_user_from_token(access_token: str) -> dict:
+    response = requests.get(
+        "https://api.twitch.tv/helix/users",
+        headers=twitch_request_headers(access_token),
+        timeout=12,
+    )
+    response.raise_for_status()
+    users = response.json().get("data", [])
+    if not users:
+        raise HTTPException(status_code=400, detail="Could not read Twitch user")
+    return users[0]
+
+
+def twitch_check_user_subscription(access_token: str, twitch_user_id: str) -> bool:
+    broadcaster_id = twitch_resolve_broadcaster_id()
+    if not broadcaster_id:
+        raise HTTPException(status_code=503, detail="Twitch broadcaster account was not found")
+    response = requests.get(
+        "https://api.twitch.tv/helix/subscriptions/user",
+        params={"broadcaster_id": broadcaster_id, "user_id": twitch_user_id},
+        headers=twitch_request_headers(access_token),
+        timeout=12,
+    )
+    if response.status_code == 404:
+        return False
+    response.raise_for_status()
+    return bool(response.json().get("data"))
 
 
 async def request_user(request: Request, required: bool = False) -> Optional[dict]:
@@ -891,6 +1000,9 @@ async def auth_config():
         "google_client_id": GOOGLE_CLIENT_ID,
         "google_login_uri": GOOGLE_LOGIN_URI,
         "stripe_configured": bool(STRIPE_SECRET_KEY),
+        "twitch_configured": twitch_configured(),
+        "twitch_broadcaster_login": TWITCH_BROADCASTER_LOGIN,
+        "twitch_discount_percent": TWITCH_DISCOUNT_PERCENT,
         "dev_login_enabled": USE_MOCK_DB,
         "object_storage_configured": USE_OBJECT_STORAGE,
         "ai_image_configured": bool(FAL_KEY),
@@ -993,6 +1105,78 @@ async def auth_me(request: Request):
     return public_user(user)
 
 
+@api_router.post("/twitch/connect")
+async def twitch_connect(request: Request):
+    enforce_rate_limit(request, "twitch-connect", limit=20, window_seconds=300)
+    user = await request_user(request, required=True)
+    if not twitch_configured():
+        raise HTTPException(status_code=503, detail="Twitch login is not configured")
+    state = secrets.token_urlsafe(32)
+    now_ts = int(time.time())
+    await db.twitch_oauth_states.insert_one({
+        "state": state,
+        "user_id": user["id"],
+        "created_at": now_iso(),
+        "created_at_ts": now_ts,
+        "expires_at_ts": now_ts + 10 * 60,
+    })
+    params = {
+        "client_id": TWITCH_CLIENT_ID,
+        "redirect_uri": twitch_redirect_uri(),
+        "response_type": "code",
+        "scope": "user:read:email user:read:subscriptions",
+        "state": state,
+        "force_verify": "true",
+    }
+    return {"url": f"https://id.twitch.tv/oauth2/authorize?{urlencode(params)}"}
+
+
+@api_router.get("/twitch/callback")
+async def twitch_callback(code: str = "", state: str = "", error: str = ""):
+    if error:
+        return RedirectResponse(f"{FRONTEND_URL}/premium?twitch=cancelled", status_code=303)
+    if not code or not state:
+        return RedirectResponse(f"{FRONTEND_URL}/premium?twitch=error", status_code=303)
+    record = await db.twitch_oauth_states.find_one({"state": state}, {"_id": 0})
+    await db.twitch_oauth_states.delete_one({"state": state})
+    if not record or int(record.get("expires_at_ts") or 0) < int(time.time()):
+        return RedirectResponse(f"{FRONTEND_URL}/premium?twitch=expired", status_code=303)
+    try:
+        token_data = twitch_exchange_code(code)
+        access_token = token_data.get("access_token", "")
+        twitch_user = twitch_user_from_token(access_token)
+        subscribed = twitch_check_user_subscription(access_token, twitch_user["id"])
+    except requests.RequestException:
+        logging.exception("Twitch OAuth callback failed")
+        return RedirectResponse(f"{FRONTEND_URL}/premium?twitch=error", status_code=303)
+    except HTTPException:
+        logging.exception("Twitch subscription check failed")
+        return RedirectResponse(f"{FRONTEND_URL}/premium?twitch=error", status_code=303)
+
+    updates = {
+        "twitch_user_id": twitch_user.get("id", ""),
+        "twitch_login": twitch_user.get("login", ""),
+        "twitch_display_name": twitch_user.get("display_name", ""),
+        "twitch_subscribed": subscribed,
+        "twitch_subscription_checked_at": now_iso(),
+        "twitch_subscription_checked_at_ts": int(time.time()),
+        "updated_at": now_iso(),
+    }
+    await db.users.update_one({"id": record["user_id"]}, {"$set": updates})
+    return RedirectResponse(
+        f"{FRONTEND_URL}/premium?twitch={'linked' if subscribed else 'not_subscribed'}",
+        status_code=303,
+    )
+
+
+@api_router.post("/twitch/refresh-status")
+async def twitch_refresh_status(request: Request):
+    user = await request_user(request, required=True)
+    if not user.get("twitch_user_id"):
+        raise HTTPException(status_code=400, detail="No Twitch account is linked")
+    return {"user": public_user(user)}
+
+
 @api_router.patch("/admin/users/{user_id}/role")
 async def update_user_role(user_id: str, payload: RoleUpdate, request: Request):
     await require_admin(request)
@@ -1031,13 +1215,26 @@ async def create_checkout_session(request: Request):
         "mode": "subscription",
         "client_reference_id": user["id"],
         "line_items": [line_item],
-        "metadata": {"user_id": user["id"]},
-        "subscription_data": {"metadata": {"user_id": user["id"]}},
+        "metadata": {
+            "user_id": user["id"],
+            "twitch_discount": "true" if twitch_discount_valid(user) else "false",
+            "twitch_login": user.get("twitch_login", ""),
+        },
+        "subscription_data": {
+            "metadata": {
+                "user_id": user["id"],
+                "twitch_discount": "true" if twitch_discount_valid(user) else "false",
+                "twitch_login": user.get("twitch_login", ""),
+            }
+        },
         "success_url": f"{FRONTEND_URL}/premium?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{FRONTEND_URL}/premium?checkout=cancelled",
         "allow_promotion_codes": True,
         "billing_address_collection": "required",
     }
+    if twitch_discount_valid(user) and STRIPE_TWITCH_COUPON_ID:
+        checkout_params["discounts"] = [{"coupon": STRIPE_TWITCH_COUPON_ID}]
+        checkout_params["allow_promotion_codes"] = False
     customer_id = user.get("stripe_customer_id")
     if not customer_id:
         customer = stripe.Customer.create(

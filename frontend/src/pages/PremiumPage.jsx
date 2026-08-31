@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Check, Crown, LockKeyhole, ShieldCheck, Sparkles, X } from "lucide-react";
+import { ArrowLeft, BadgePercent, Check, Crown, LockKeyhole, ShieldCheck, Sparkles, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { hasPremiumAccess, useAuth } from "@/lib/auth";
+import TwitchIcon from "@/components/TwitchIcon";
 
 const BENEFITS = [
   "All premium assets included with membership",
@@ -34,6 +35,15 @@ const checkoutErrorMessage = (err, fallback) => {
   if (data?.detail) return data.detail;
   if (err?.message) return err.message;
   return fallback;
+};
+
+const twitchMessage = (state, broadcaster = "mrbit100", discount = 15) => {
+  if (state === "linked") return `Twitch linked. Subscriber discount unlocked for ${discount}% off Premium.`;
+  if (state === "not_subscribed") return `Twitch linked, but that account is not currently subscribed to ${broadcaster}.`;
+  if (state === "cancelled") return "Twitch linking was cancelled.";
+  if (state === "expired") return "Twitch linking expired. Please try again.";
+  if (state === "error") return "Twitch could not verify the subscription. Please try again.";
+  return "";
 };
 
 function ComparisonValue({ value, premium = false }) {
@@ -68,6 +78,12 @@ export default function PremiumPage() {
   const [error, setError] = useState("");
   const checkoutState = searchParams.get("checkout");
   const checkoutSessionId = searchParams.get("session_id");
+  const twitchState = searchParams.get("twitch");
+  const twitchNotice = twitchMessage(
+    twitchState,
+    config.twitch_broadcaster_login,
+    config.twitch_discount_percent
+  );
 
   useEffect(() => {
     if (checkoutState !== "success" || !checkoutSessionId) return;
@@ -122,6 +138,27 @@ export default function PremiumPage() {
     }
   };
 
+  const connectTwitch = async () => {
+    if (!user) {
+      navigate("/login?returnTo=/premium");
+      return;
+    }
+    if (!config.twitch_configured) {
+      setError("Twitch login is not configured yet. Add the Twitch environment variables in Render first.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const { data } = await api.post("/twitch/connect");
+      if (!data.url) throw new Error("No Twitch login URL returned");
+      window.location.assign(data.url);
+    } catch (err) {
+      setError(checkoutErrorMessage(err, "Unable to start Twitch login."));
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="min-h-[calc(100vh-4rem)] pt-28 pb-20 px-6" data-testid="premium-page">
       <div className="max-w-5xl mx-auto">
@@ -140,6 +177,15 @@ export default function PremiumPage() {
         {checkoutState === "success" && (
           <div className="mb-6 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4 text-emerald-100">
             Payment received. Premium access is being activated for your signed-in account.
+          </div>
+        )}
+        {twitchNotice && (
+          <div className={`mb-6 rounded-xl border px-5 py-4 ${
+            twitchState === "linked"
+              ? "border-purple-400/30 bg-purple-400/10 text-purple-100"
+              : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+          }`}>
+            {twitchNotice}
           </div>
         )}
 
@@ -175,6 +221,47 @@ export default function PremiumPage() {
             <div className="mt-6 rounded-2xl border border-purple-300/20 bg-purple-300/10 px-4 py-3 text-sm text-purple-100 flex items-center gap-2">
               <Crown className="w-4 h-4 flex-shrink-0" /> Included with membership: every Premium asset plus 30 higher-quality AI text generations per month.
             </div>
+
+            {!hasPremium && (
+              <div className="mt-4 rounded-2xl border border-[#9146FF]/30 bg-[#9146FF]/10 px-4 py-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#9146FF]/20 border border-[#9146FF]/30 flex items-center justify-center flex-shrink-0">
+                    <TwitchIcon className="w-5 h-5 text-purple-100" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-white flex items-center gap-2">
+                      Twitch subscriber discount
+                      <span className="inline-flex items-center gap-1 rounded-full border border-purple-300/20 bg-purple-300/10 px-2 py-0.5 text-[11px] text-purple-100">
+                        <BadgePercent className="w-3 h-3" /> {config.twitch_discount_percent || 15}% off
+                      </span>
+                    </p>
+                    <p className="text-sm text-zinc-400 mt-1">
+                      Subscribe to <span className="text-purple-100 font-semibold">{config.twitch_broadcaster_login || "mrbit100"}</span> on Twitch, then link Twitch here before checkout.
+                    </p>
+                    {user?.twitch_login && (
+                      <p className={`text-xs mt-2 ${user.twitch_discount_eligible ? "text-emerald-300" : "text-amber-300"}`}>
+                        Linked as {user.twitch_login}. {user.twitch_discount_eligible ? "Discount eligible." : "Subscriber discount not currently verified."}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={connectTwitch}
+                      disabled={busy}
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#9146FF] hover:bg-[#772ce8] disabled:bg-white/10 disabled:text-zinc-500 text-white px-4 py-2 text-sm font-semibold btn-press"
+                      data-testid="premium-twitch-connect"
+                    >
+                      <TwitchIcon className="w-4 h-4" />
+                      {user?.twitch_discount_eligible ? "Recheck Twitch" : "Link Twitch for discount"}
+                    </button>
+                    {!config.twitch_configured && (
+                      <p className="text-xs text-zinc-500 mt-2">
+                        Twitch discount is ready in the code. Add Twitch keys in Render to enable it.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <ul className="space-y-4 mt-6 flex-1">
               {BENEFITS.map((benefit) => (

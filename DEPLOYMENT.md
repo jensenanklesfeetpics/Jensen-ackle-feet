@@ -64,6 +64,24 @@ Set these backend variables:
 - `STRIPE_PRICE_ID`
 - `STRIPE_WEBHOOK_SECRET`
 
+Optional Twitch subscriber discount:
+
+- `TWITCH_CLIENT_ID`
+- `TWITCH_CLIENT_SECRET`
+- `TWITCH_REDIRECT_URI`
+- `TWITCH_BROADCASTER_LOGIN` — defaults to `mrbit100`
+- `TWITCH_BROADCASTER_ID` — optional, but recommended once you know your Twitch channel ID
+- `TWITCH_DISCOUNT_PERCENT` — defaults to `15`
+- `STRIPE_TWITCH_COUPON_ID` — Stripe coupon ID for the 15% subscriber discount
+
+Create a Twitch Developer app and set its OAuth redirect URL to:
+
+```text
+https://your-backend-domain.com/api/twitch/callback
+```
+
+Use that exact URL as `TWITCH_REDIRECT_URI` in Render. In Stripe, create a repeating percent-off coupon for Twitch subscribers and paste its coupon ID into `STRIPE_TWITCH_COUPON_ID`.
+
 Optional manual premium access:
 
 - `MANUAL_PREMIUM_EMAILS`

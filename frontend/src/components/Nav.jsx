@@ -2,6 +2,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { Lock, Menu, Upload, LogOut, UserCircle, Crown, Settings, Check, BarChart3 } from "lucide-react";
 import DiscordIcon from "@/components/DiscordIcon";
+import TwitchIcon from "@/components/TwitchIcon";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -222,6 +223,15 @@ export default function Nav() {
               <UserCircle className="w-4 h-4" /> Sign in
             </Link>
           )}
+
+          <Link
+            to="/premium"
+            className="hidden sm:inline-flex shrink-0 whitespace-nowrap items-center gap-2 bg-[#9146FF] hover:bg-[#772ce8] text-white px-4 py-2 rounded-lg text-sm font-semibold btn-press"
+            data-testid="nav-twitch-link"
+          >
+            <TwitchIcon className="w-[18px] h-[18px]" />
+            Twitch
+          </Link>
 
           <a
             href="https://discord.gg/2VvMq3Pz85"
