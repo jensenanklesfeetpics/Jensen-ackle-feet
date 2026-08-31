@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   api,
-  AUDIO_CREATORS,
   CREATOR_THEMES,
   SHOWS,
   SHOW_THEMES,
@@ -163,11 +162,13 @@ export default function CategoryPage() {
   );
 
   const mergedCreators = useMemo(() => {
-    const customs = Array.from(
+    const creatorsFromAssets = Array.from(
       new Set(categorySearchFilteredAssets.filter((a) => a.creator_tag).map((a) => a.creator_tag))
     );
-    return [...AUDIO_CREATORS, ...customs.filter((c) => !AUDIO_CREATORS.includes(c))];
-  }, [categorySearchFilteredAssets]);
+    const creatorsFromOverrides = Object.keys(overrides.creator || {});
+    return Array.from(new Set([...creatorsFromAssets, ...creatorsFromOverrides]))
+      .filter((name) => !overrides.creator?.[name]?.deleted);
+  }, [categorySearchFilteredAssets, overrides.creator]);
 
   const mergedShows = useMemo(() => {
     const customs = Array.from(

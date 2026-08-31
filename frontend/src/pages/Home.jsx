@@ -4,7 +4,6 @@ import {
   api,
   CATEGORIES,
   CATEGORY_COLORS,
-  AUDIO_CREATORS,
   CREATOR_THEMES,
   SHOWS,
   SHOW_THEMES,
@@ -110,15 +109,17 @@ export default function Home() {
   );
 
   const mergedAudioCreators = useMemo(() => {
-    const customs = Array.from(
+    const creatorsFromAssets = Array.from(
       new Set(
         assets
           .filter((a) => a.category === "Audios" && a.creator_tag)
           .map((a) => a.creator_tag)
       )
     );
-    return [...AUDIO_CREATORS, ...customs.filter((c) => !AUDIO_CREATORS.includes(c))];
-  }, [assets]);
+    const creatorsFromOverrides = Object.keys(overrides.creator || {});
+    return Array.from(new Set([...creatorsFromAssets, ...creatorsFromOverrides]))
+      .filter((name) => !overrides.creator?.[name]?.deleted);
+  }, [assets, overrides.creator]);
 
   const mergedShows = useMemo(() => {
     const customs = Array.from(

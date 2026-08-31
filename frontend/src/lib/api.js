@@ -34,15 +34,6 @@ export const CATEGORIES = [
   "Premium",
 ];
 
-export const AUDIO_CREATORS = [
-  "MRBIT AUDIOS",
-  "IUSETHIS AUDIOS",
-  "NEXLO AUDIOS",
-  "ALTOM AUDIOS",
-  "S4MURAIAE AUDIOS",
-  "ZINC AUDIOS",
-];
-
 export const CREATOR_THEMES = {
   "MRBIT AUDIOS":     { from: "#3B0F66", to: "#1A0530", text: "#D8B4FE", accent: "#A855F7" },
   "IUSETHIS AUDIOS":  { from: "#0E2A5C", to: "#040E26", text: "#93C5FD", accent: "#3B82F6" },

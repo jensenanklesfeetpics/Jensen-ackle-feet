@@ -17,7 +17,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Upload, ImagePlus, RefreshCw } from "lucide-react";
-import { api, CATEGORIES, AUDIO_CREATORS, SHOWS, FILE_BASE } from "@/lib/api";
+import { api, CATEGORIES, SHOWS, FILE_BASE } from "@/lib/api";
 import { useUploadAccess } from "@/lib/uploadAccess";
 import { toast } from "sonner";
 
@@ -116,17 +116,22 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
   const [submitting, setSubmitting] = useState(false);
   const [knownCreators, setKnownCreators] = useState([]);
   const [knownShows, setKnownShows] = useState([]);
+  const [creatorOverrides, setCreatorOverrides] = useState({});
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const loadDistincts = async () => {
     try {
-      const [cr, sh] = await Promise.all([
+      const [cr, sh, ov] = await Promise.all([
         api.get("/distinct/creators"),
         api.get("/distinct/shows"),
+        api.get("/category-overrides", { params: { kind: "creator" } }),
       ]);
       setKnownCreators(cr.data || []);
       setKnownShows(sh.data || []);
+      const grouped = {};
+      for (const item of ov.data || []) grouped[item.name] = item;
+      setCreatorOverrides(grouped);
     } catch {}
   };
 
@@ -242,6 +247,9 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
   const isTorrent = form.category === "Torrents";
   const categoryOptions = canDelete ? CATEGORIES : CATEGORIES.filter((c) => c !== "Premium");
   const canMarkUpdated = Boolean(editing?.id) && UPDATE_MARKABLE_CATEGORIES.has(form.category);
+  const creatorSuggestions = Array.from(
+    new Set([...knownCreators, ...Object.keys(creatorOverrides)].filter(Boolean))
+  ).filter((name) => !creatorOverrides[name]?.deleted);
   const thumbnailPreviewSrc = form.thumbnail_url
     ? form.thumbnail_url.startsWith("http") ? form.thumbnail_url : `${FILE_BASE}${form.thumbnail_url}`
     : "";
@@ -367,10 +375,7 @@ export default function UploadModal({ open, onOpenChange, editing, onSaved }) {
                     data-testid="upload-creator-input"
                   />
                   <datalist id="creator-suggestions">
-                    {[
-                      ...AUDIO_CREATORS,
-                      ...knownCreators.filter((c) => !AUDIO_CREATORS.includes(c)),
-                    ].map((c) => (
+                    {creatorSuggestions.map((c) => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>
